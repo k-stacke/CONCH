@@ -128,7 +128,7 @@ class ImageExpressionDataset(Dataset):
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune and test CONCH models")
     # BCNB configuration
-    parser.add_argument('--base_dir', type=str, default='/home/hu-eki/Data/BCNB') # /proj/hugek/BCNB
+    parser.add_argument('--base_dir', type=str, default='/scratch/local/Data/BCNB') # /proj/hugek/BCNB
     parser.add_argument('--experiment_dir', type=str, default='experiments',
                         help="Base folder for experiments")
     parser.add_argument('--ids_file', type=str,
@@ -136,7 +136,7 @@ def parse_args():
                         help="Excel file containing patient IDs and target values")
     parser.add_argument('--BCNB_data_folder', type=str,
                         help="Folder with patient image subfolders")
-    parser.add_argument('--batch_size', type=int, default=32,
+    parser.add_argument('--batch_size', type=int, default=128,
                         help="Batch size for processing images during testing")
     parser.add_argument('--num_workers', type=int, default=4,
                         help="Number of workers for DataLoader")
@@ -151,7 +151,7 @@ def parse_args():
     
     # Training parameters
     parser.add_argument('--train_epochs', type=int, default=50, help='Number of training epochs')
-    parser.add_argument('--train_batch_size', type=int, default=32, help='Training batch size')
+    parser.add_argument('--train_batch_size', type=int, default=128, help='Training batch size')
     parser.add_argument('--lr_decay', type=float, default=0.7, help='Learning rate decay factor')
     parser.add_argument('--lr_layer_3', type=float, default=1e-4, help='Learning rate for the last block')
     parser.add_argument('--lr_mlp', type=float, default=0.003, help='Learning rate for the MLP')
@@ -160,9 +160,9 @@ def parse_args():
     
     # InfoNCE and finetuning dataset
     parser.add_argument('--temperature', type=float, default=0.02, help='Temperature for InfoNCE loss')
-    parser.add_argument('--finetuning_cases', type=str, default='NCBI785',
+    parser.add_argument('--finetuning_cases', type=str, default='TENX99,TENX96,TENX95,NCBI783,NCBI785',
                         help='Comma-separated list of cases for finetuning')
-    parser.add_argument('--HEST_dir', type=str, default='/home/hu-eki/Projects/HEST/tutorials/hest_data', # /proj/hugek/HEST
+    parser.add_argument('--HEST_dir', type=str, default='/scratch/local/Data/HEST', # /proj/hugek/HEST
                         help='Directory with HEST data')
     parser.add_argument('--expression_dir', type=str, default='st',
                         help='Directory with expression data')
@@ -346,7 +346,7 @@ def finetune_model(args, run_folder):
         scheduler_mlp.step()
         training_metrics.append({'epoch': epoch, 'loss': epoch_loss})
 
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             finetuned_model_path = os.path.join(checkpoint_folder, f'epoch_{epoch}.pth')
             torch.save(model_vit.state_dict(), finetuned_model_path)
             print(f"Checkpoint saved at epoch {epoch}:", finetuned_model_path)
