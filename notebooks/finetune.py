@@ -178,8 +178,10 @@ def parse_args():
     parser.add_argument('--contrast', type=float, default=0.1, help="Contrast factor for color jitter")  
     parser.add_argument('--saturation', type=float, default=0.1, help="Saturation factor for color jitter")
     parser.add_argument('--hue', type=float, default=0.1, help="Hue factor for color jitter")
-    parser.add_argument('--stain_normalize', action='store_true',
-                        help="Use stain normalized patches instead of original patches")
+    parser.add_argument('--stain_normalize_finetune', action='store_true',
+                        help="Use stain normalized patches instead of original patches in training")
+    parser.add_argument('--stain_normalize_inference', action='store_true',
+                        help="Use stain normalized patches instead of original patches in inference")
     parser.add_argument('--normalize_total', action='store_true',
                         help="Normalize the total counts across samples")
     parser.add_argument('--normalize_CPM', action='store_true',
@@ -196,11 +198,11 @@ def parse_args():
     args, _ = parser.parse_known_args()
     
     # Set paths based on whether stain normalization is used
-    subfolder = 'normalized' if args.stain_normalize else 'patches'
     if args.BCNB_data_folder is None:
+        subfolder = 'patches_normalized' if args.stain_normalize_inference else 'patches'
         args.BCNB_data_folder = os.path.join(args.base_dir, f'paper_patches/{subfolder}')
     if args.image_dir is None:
-        args.image_dir = subfolder
+        args.image_dir = 'patches_normalized' if args.stain_normalize_finetune else 'patches'
                         
     # Get list of arguments that were set from command line
     manual_args = {action.dest: getattr(args, action.dest)
@@ -296,7 +298,7 @@ def init_models(args):
     cases = args.finetuning_cases.split(',')
     expression_dir = os.path.join(args.HEST_dir, args.expression_dir)
     image_dir = os.path.join(args.HEST_dir, args.image_dir)
-    with open(args.selected_genes_file, 'r') as f:
+    with open(args.filtered_genes, 'r') as f:
         selected_genes = json.load(f)
 
     dataset = ImageExpressionDataset(cases=cases, image_dir=image_dir, expression_dir=expression_dir,
@@ -354,10 +356,11 @@ def finetune_model(args, run_folder):
     print("Finetuning complete. Finetuned model saved at", finetuned_model_path)
 
     # Save training metrics to CSV
-    metrics_df = pd.DataFrame(training_metrics)
-    metrics_csv_path = os.path.join(run_folder, 'training_metrics.csv')
-    metrics_df.to_csv(metrics_csv_path, index=False)
-    print("Training metrics saved at", metrics_csv_path)
+    if training_metrics:
+        metrics_df = pd.DataFrame(training_metrics)
+        metrics_csv_path = os.path.join(run_folder, 'training_metrics.csv')
+        metrics_df.to_csv(metrics_csv_path, index=False)
+        print("Training metrics saved at", metrics_csv_path)
 
     return model_vit, preprocess
 
@@ -504,9 +507,6 @@ def train_and_test_ridge(args, run_folder, random_state=42, max_iter=1000):
             'auc': {'ER': aucs[0], 'PR': aucs[1], 'HER2': aucs[2]},
             'balanced_accuracy': {'ER': bal_accs[0], 'PR': bal_accs[1], 'HER2': bal_accs[2]}
         }
-        print(f"Accuracy for {model_name}: ER={accuracies[0]:.3f}, PR={accuracies[1]:.3f}, HER2={accuracies[2]:.3f}")
-        print(f"AUC for {model_name}: ER={aucs[0]:.3f}, PR={aucs[1]:.3f}, HER2={aucs[2]:.3f}")
-        print(f"Balanced accuracy for {model_name}: ER={bal_accs[0]:.3f}, PR={bal_accs[1]:.3f}, HER2={bal_accs[2]:.3f}")
 
         json_file = os.path.join(run_folder, 'results.json')
         with open(json_file, 'w') as f:
@@ -539,19 +539,18 @@ def visualize_results(run_folder):
 
     # Plot training loss over time
     training_metrics_path = os.path.join(run_folder, 'training_metrics.csv')
-    if not os.path.exists(training_metrics_path):
-        raise FileNotFoundError(f"Training metrics file not found at {training_metrics_path}")
-    metrics_df = pd.read_csv(training_metrics_path)
-    plt.figure(figsize=(10, 6))
-    plt.plot(metrics_df['epoch'], metrics_df['loss'], marker='o', linestyle='-')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training Loss Over Time')
-    plt.grid(True)
-    loss_plot_path = os.path.join(plots_dir, 'training_loss.png')
-    plt.savefig(loss_plot_path)
-    plt.close()
-    print(f"Saved training loss plot at {loss_plot_path}")
+    if os.path.exists(training_metrics_path):
+        metrics_df = pd.read_csv(training_metrics_path)
+        plt.figure(figsize=(10, 6))
+        plt.plot(metrics_df['epoch'], metrics_df['loss'], marker='o', linestyle='-')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training Loss Over Time')
+        plt.grid(True)
+        loss_plot_path = os.path.join(plots_dir, 'training_loss.png')
+        plt.savefig(loss_plot_path)
+        plt.close()
+        print(f"Saved training loss plot at {loss_plot_path}")
     
     # Plot predictions for each model
     results_path = os.path.join(run_folder, 'results.csv')
@@ -577,7 +576,7 @@ def visualize_results(run_folder):
         label.set_rotation(45)
     plt.tight_layout()
 
-    results_plot_path = os.path.join(os.path.dirname(results_path), 'results_plot.png')
+    results_plot_path = os.path.join(plots_dir, 'results_plot.png')
     plt.savefig(results_plot_path)
     plt.close()
     print(f"Saved results plot at {results_plot_path}")
@@ -602,7 +601,6 @@ def main():
 
     model_vit, preprocess = finetune_model(args, run_folder)
     extract_embeddings(args, run_folder)
-    run_folder = '/home/hu-eki/Data/BCNB/experiments/Defaults+train_epochs;2/20250215_121349'
     results = train_and_test_ridge(args, run_folder)
     visualize_results(run_folder)
     
