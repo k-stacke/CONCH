@@ -23,6 +23,7 @@ from sklearn.linear_model import Ridge, LogisticRegression
 from sklearn.metrics import roc_auc_score, balanced_accuracy_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+import stlearn as st
 
 class ImageExpressionDataset(Dataset):
     def __init__(self, cases, image_dir, expression_dir, selected_genes=None, transform=None, args=None):
@@ -55,10 +56,18 @@ class ImageExpressionDataset(Dataset):
             adata = self.load_expressions(case)
             # Merge the data
             df_patches.loc[:, 'expression'] = list(adata[df_patches.barcode, :].X)
-            
+
             dfs.append(df_patches)
 
-        return pd.concat(dfs)
+        # Concatenate all the dataframes and do PCA on the expression data
+        # PCA on a case per case basis does not make sense, as it will produce different bases for each case
+        concat_df = pd.concat(dfs)
+        if self.args.st_PCA:
+            expression_matrix = np.stack(concat_df['expression'].values)
+            reduced_expression = sc.pp.pca(expression_matrix, n_comps=self.args.PCA_components)
+            concat_df['expression'] = list(reduced_expression)
+
+        return concat_df
 
     def load_patches(self, case):
         # Open the file in read mode
@@ -78,7 +87,7 @@ class ImageExpressionDataset(Dataset):
         )
         return df
 
-    def load_expressions(self, case):       
+    def load_expressions(self, case):
         adata = sc.read_h5ad(f'{self.expression_dir}/{case}.h5ad')
         adata.obs['batch'] = case  # Add filename as batch key
 
@@ -97,12 +106,21 @@ class ImageExpressionDataset(Dataset):
         if self.args.log1p:
             sc.pp.log1p(adata)
         
-
         if self.args.smoothing:
-            raise NotImplementedError("Smoothing not implemented yet")
-        
-        if self.args.st_PCA:
-            raise NotImplementedError("PCA not implemented yet")
+            n_PCA = self.args.PCA_components
+            adata = st.convert_scanpy(adata, use_quality='downscaled_fullres')
+
+            # pre-processing for spot image
+            st.pp.tiling(adata, out_path=f'{self.expression_dir}/{case}_tiles')
+
+            # this step uses deep learning model to extract high-level features from tile images
+            st.pp.extract_feature(adata, n_components=n_PCA)
+
+            # run PCA for gene expression data
+            st.em.run_pca(adata, n_comps=n_PCA)
+
+            st.spatial.SME.SME_normalize(adata, use_data="raw")
+            adata.X = adata.obsm['raw_SME_normalized'].astype('float32')
         
         return adata
 
@@ -194,6 +212,8 @@ def parse_args():
                         help="Apply smoothing to the expression data")
     parser.add_argument('--st_PCA', action='store_true',
                         help="Perform PCA on spatial transcriptomics data")
+    parser.add_argument('--PCA_components', type=int, default=50,
+                        help="Number of components for PCA")
     
     args, _ = parser.parse_known_args()
     
@@ -255,8 +275,9 @@ def init_models(args):
         param.requires_grad = True
 
     # Define a 3-layer MLP for additional finetuning
+    input_size = args.PCA_components if args.st_PCA else args.mlp_input_dim
     model_mlp = nn.Sequential(
-        nn.Linear(args.mlp_input_dim, args.mlp_output_dim * 2),
+        nn.Linear(input_size, args.mlp_output_dim * 2),
         nn.ReLU(),
         nn.Linear(args.mlp_output_dim * 2, args.mlp_output_dim * 2),
         nn.ReLU(),
