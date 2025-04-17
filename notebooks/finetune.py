@@ -145,8 +145,13 @@ class ImageExpressionDataset(Dataset):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune and test CONCH models")
+    ## General parameters
+    parser.add_argument('--location', type=str, default='local',
+                        help="Specify where the program is running (local or remote)")
+
     # BCNB configuration
-    parser.add_argument('--base_dir', type=str, default='/scratch/local/Data/BCNB') # /proj/hugek/BCNB
+    parser.add_argument('--base_dir', type=str,
+                        help='Directory with BCNB data')
     parser.add_argument('--experiment_dir', type=str, default='experiments',
                         help="Base folder for experiments")
     parser.add_argument('--ids_file', type=str,
@@ -180,7 +185,7 @@ def parse_args():
     parser.add_argument('--temperature', type=float, default=0.02, help='Temperature for InfoNCE loss')
     parser.add_argument('--finetuning_cases', type=str, default='TENX99,TENX96,TENX95,NCBI783,NCBI785',
                         help='Comma-separated list of cases for finetuning')
-    parser.add_argument('--HEST_dir', type=str, default='/scratch/local/Data/HEST', # /proj/hugek/HEST
+    parser.add_argument('--HEST_dir', type=str,
                         help='Directory with HEST data')
     parser.add_argument('--expression_dir', type=str, default='st',
                         help='Directory with expression data')
@@ -223,6 +228,26 @@ def parse_args():
         args.BCNB_data_folder = os.path.join(args.base_dir, f'paper_patches/{subfolder}')
     if args.image_dir is None:
         args.image_dir = 'patches_normalized' if args.stain_normalize_finetune else 'patches'
+
+    # Set directories based on location
+    if args.base_dir is None:
+        if args.location == 'local':
+            args.base_dir = '/home/hu-eki/Data/BCNB'
+        elif args.location == 'DGX':
+            args.base_dir = '/proj/hugek/BCNB'
+        elif args.location == 'Berzelius':
+            args.base_dir = '/scratch/local/Data/BCNB'
+        else:
+            raise ValueError("Invalid location. Choose 'local', 'DGX', or 'Berzelius'.")
+    if args.HEST_dir is None:
+        if args.location == 'local':
+            args.HEST_dir = '/home/hu-eki/Projects/HEST/tutorials/hest_data'
+        elif args.location == 'DGX':
+            args.HEST_dir = '/proj/hugek/HEST'
+        elif args.location == 'Berzelius':
+            args.HEST_dir = '/scratch/local/Data/HEST'
+        else:
+            raise ValueError("Invalid location. Choose 'local', 'DGX', or 'Berzelius'.")
                         
     # Get list of arguments that were set from command line
     manual_args = {action.dest: getattr(args, action.dest)
